@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <math.h>
 #include <random>
+#include <string>
 using namespace std;
 using namespace std::placeholders;
 /**
@@ -20,17 +21,18 @@ typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
 static std::default_random_engine generator;
 const float ZONE_RAY = 100.0f;
-int RAND_FACTOR = 100;
-const int MISPROP_FACTOR = 100;
+int RAND_FACTOR = 400;
+const int MISPROP_FACTOR = 10;
 
 struct Drone
 {
-    Drone(int id) : id(id), zone(-1)
+    Drone(int id) : id(id), zone(-1), aimZone(-1)
     {}
     int x;
     int y;
     int id;
     int zone;
+    int aimZone;
 };
 
 istream& operator>>(istream& stream, Drone& drone)
@@ -170,7 +172,11 @@ Player findMyPlayer(const World& world, Players players)
 {
     auto myPlayer = find_if(std::begin(players), std::end(players), std::bind(isMyPlayer, _1, world));
     if (myPlayer == std::end(players))
-            throw std::logic_error("Couldn't find my player");
+    {
+        cerr << "Couldn't find my player" << endl;
+        throw std::logic_error("Couldn't find my player");
+    }
+
     return *myPlayer;
 }
 
@@ -185,7 +191,20 @@ Zones getUnownedZones(const Zones& zones)
     return unownedZones;
 }
 
+template<typename T>
+typename T::value_type findElementWithId(const T& t, int id)
+{
+    auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
+        return element.id == id;
+    });
+    if (currElementIt == std::end(t))
+    {
+        cerr << "There was no zone with id: " + std::to_string(id) << endl;
+        throw std::logic_error("There was no zone with id: " + std::to_string(id));
+    }
 
+    return *currElementIt;
+}
 
 Zones getEmptyZones(const Zones& zones, const Players& players, const World& world)
 {
@@ -235,41 +254,66 @@ Zone getClosestZone(const Zones& zones, F distanceFunction)
 }
 
 template<typename F>
-void moveDrone(const Zones& zones, F distanceFunction)
+void moveDrone(const Zones& zones, Drone& drone, F distanceFunction)
 {
     auto closestZone = getClosestZone(zones, distanceFunction);
-    cout << closestZone.x << " " << closestZone.y << endl;
+    if(drone.aimZone == -1 && drone.zone == -1)
+    {
+        cerr << "getClosestZone" << endl;
+        drone.aimZone = closestZone.id;
+        cout << closestZone.x << " " << closestZone.y << endl;
+    }
+    else
+    {
+        cerr << "findElementWithId aimZone: " << drone.aimZone << endl;
+        Zone currZone = findElementWithId<Zones>(zones,  drone.aimZone);
+        drone.aimZone = currZone.id;
+        cout << currZone.x << " " << currZone.y << endl;
+    }
 }
+
+
 
 template<typename F>
 void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
 {
-    Zone currZone = *find_if(std::begin(zones), std::end(zones), [&drone](const Zone& zone){
-        return zone.id == drone.zone;
-    });
+
+
+    Zone currZone = findElementWithId<Zones>(zones,  drone.zone);
     cerr << "findIfDroneIsInZone" << endl;
+    if(drone.zone == drone.aimZone)
+    {
+        drone.aimZone = -1;
+    }
     if(getRandomInt(1, 1000) > RAND_FACTOR && currZone.enemyDrones.empty())
     {
-        moveDrone(zones, distanceFunction);
+        cerr << "Random move from clear of enemies zone" << endl;
+        drone.zone = -1;
+        moveDrone(zones, drone, distanceFunction);
     }
-    else if(getRandomInt(1, 1000) > RAND_FACTOR*9)
-    {
-        const Zone& zone = *std::min_element(std::begin(zones), std::end(zones),
-        [](const Zone& zone1, const Zone& zone2){
-            return zone1.enemyDrones.size() < zone2.enemyDrones.size();
-    });;
-        cerr << "Random move" << endl;
-        cout << zone.x << " " << zone.y << endl;
-    }
+    // else if(getRandomInt(1, 1000) > RAND_FACTOR*9)
+    // {
+    //     cerr << "Random move from enemies zone" << endl;
+    //     const Zone& zone = *std::min_element(std::begin(zones), std::end(zones),
+    //     [](const Zone& zone1, const Zone& zone2){
+    //         return zone1.enemyDrones.size() < zone2.enemyDrones.size();
+    //     });;
+
+    //     drone.aimZone = zone.id;
+    //     cout << zone.x << " " << zone.y << endl;
+    // }
     else
     {
-        moveDrone(zones, distanceFunction);
+        cerr << "Random move" << endl;
+        // drone.zone = -1;
+        // moveDrone(zones, drone, distanceFunction);
+        cout << currZone.x << " " << currZone.y << endl;
     }
 }
 
 int  calculateForceMisproportion(const Zone& zone)
 {
-    return ((zone.playerDrones.size() - zone.enemyDrones.size())) /(zone.enemyDrones.size() + 1);
+    return abs(zone.playerDrones.size() - zone.enemyDrones.size());
 }
 
 int calculateValue(const Drone& drone, const Zone& zone)
@@ -291,17 +335,19 @@ void animateDrone(const Zones& zones, const Zones& unownedZones, const Zones& em
     else if(!unownedZones.empty())
     {
         cerr << "unownedZones" << endl;
-        moveDrone(unownedZones, distanceFunc);
+        drone.aimZone = -1;
+        moveDrone(unownedZones, drone, distanceFunc);
     }
     else if (!emptyZones.empty())
     {
         cerr << "emptyZones" << endl;
-        moveDrone(emptyZones, distanceFunc);
+        drone.aimZone = -1;
+        moveDrone(emptyZones, drone, distanceFunc);
     }
     else
     {
         cerr << "Default" << endl;
-        moveDrone(zones, valueFunc);
+        moveDrone(zones, drone, valueFunc);
     }
 }
 
@@ -361,12 +407,30 @@ void print(const Zones& t)
     });
 }
 
+Drones updateDrone(const Drones& oldDrones, Drones resultDrones, const Drone& newDrone)
+{
+    Drone oldDrone = findElementWithId(oldDrones, newDrone.id);
+    resultDrones.emplace_back(newDrone);
+    resultDrones.back().aimZone = oldDrone.aimZone;;
+    return resultDrones;
+}
+
+Drones updateDronesWithHistoricalData(const Drones& oldDrones, const Drones& newDrones)
+{
+    Drones resultDrones;
+    if(oldDrones.empty())
+        return newDrones;
+    auto updateDronesFunc = bind(updateDrone, oldDrones, _1, _2);
+    resultDrones = accumulate(std::begin(newDrones), std::end(newDrones), Drones(), updateDronesFunc);
+    return resultDrones;
+}
+
 int main()
 {
     World world;
     cin >> world; cin.ignore();
     std::vector<Zone> zones = readZones(world);
-
+    Drones oldDrones;
     // game loop
     while (1) {
         clearZones(zones);
@@ -374,6 +438,7 @@ int main()
         Players players = readPlayers(world);
         associateDronsWithZones(zones, players, world);
         Player myPlayer = findMyPlayer(world, players);
+        myPlayer.drones = updateDronesWithHistoricalData(oldDrones, myPlayer.drones);
         print(zones);
         print(players);
         Zones unownedZones = getUnownedZones(zones);
@@ -382,5 +447,6 @@ int main()
         auto droneAnimationFunc = std::bind(animateDrone, cref(zones), cref(unownedZones), cref(emptyZones), _1);
         // RAND_FACTOR *= 1.1;
         for_each(std::begin(myPlayer.drones), std::end(myPlayer.drones), droneAnimationFunc);
+        oldDrones = myPlayer.drones;
     }
 }
