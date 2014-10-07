@@ -294,7 +294,9 @@ const Zone& getZoneWithTheLeastEnemies(const Zones& zones)
 void moveFromEnemyZone(const Zones& zones, Drone& drone)
 {
     cerr << "Random move from enemies zone" << endl;
-    const Zone& zone = getZoneWithTheLeastEnemies(zones);
+    drone.zone = -1;
+    Zones notMyZones = removeElementWithId<Zones>(zones, drone.zone);
+    const Zone& zone = getZoneWithTheLeastEnemies(notMyZones);
     drone.aimZone = zone.id;
     cout << zone.x << " " << zone.y << endl;
 }
@@ -303,9 +305,10 @@ template<typename F>
 void moveFromMyZone(const Zones& zones, Drone& drone, F distanceFunction)
 {
     cerr << "Random move from clear of enemies zone" << endl;
-    drone.zone = -1;
+
     drone.aimZone = -1;
-    Zones notMyZones = removeElementWithId<Zones>(zones, drone.id);
+    Zones notMyZones = removeElementWithId<Zones>(zones, drone.zone);
+    drone.zone = -1;
     moveDrone(notMyZones, drone, distanceFunction);
 }
 
@@ -340,7 +343,7 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
 
 int  calculateForceMisproportion(const Zone& zone)
 {
-    return (zone.playerDrones.size() - zone.enemyDrones.size());
+    return zone.enemyDrones.size() > zone.playerDrones.size() ? zone.enemyDrones.size() - zone.playerDrones.size() : 0;
 }
 
 int calculateValue(const Drone& drone, const Zone& zone)
