@@ -20,8 +20,9 @@ typedef std::vector<Drone> Drones;
 typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
 static std::default_random_engine generator;
-const float ZONE_RAY = 100.0f;
-int RAND_FACTOR = 533;
+const float ZONE_RAY = 99.0f;
+int RAND_FACTOR = 733;
+int RAND_ENEMY_FACTOR = 950;
 const int MISPROP_FACTOR = 100;
 
 struct Drone
@@ -328,7 +329,7 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
     {
         moveFromMyZone(zones, drone, distanceFunction);
     }
-    else if(getRandomInt(1, 1000) > 900)
+    else if(getRandomInt(1, 1000) > RAND_ENEMY_FACTOR)
     {
         moveFromEnemyZone(zones, drone);
     }
