@@ -300,6 +300,7 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
     {
         cerr << "Random move from clear of enemies zone" << endl;
         drone.zone = -1;
+        drone.aimZone = -1;
         Zones notMyZones = removeElementWithId<Zones>(zones, drone.id);
         moveDrone(notMyZones, drone, distanceFunction);
     }
