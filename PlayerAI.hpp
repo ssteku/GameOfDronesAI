@@ -283,6 +283,31 @@ void moveDrone(const Zones& zones, Drone& drone, F distanceFunction)
     }
 }
 
+const Zone& getZoneWithTheLeastEnemies(const Zones& zones)
+{
+    return *std::min_element(std::begin(zones), std::end(zones),
+        [](const Zone& zone1, const Zone& zone2){
+            return zone1.enemyDrones.size() < zone2.enemyDrones.size();
+    });;
+}
+
+void moveFromEnemyZone(const Zones& zones, Drone& drone)
+{
+    cerr << "Random move from enemies zone" << endl;
+    const Zone& zone = getZoneWithTheLeastEnemies(zones);
+    drone.aimZone = zone.id;
+    cout << zone.x << " " << zone.y << endl;
+}
+
+template<typename F>
+void moveFromMyZone(const Zones& zones, Drone& drone, F distanceFunction)
+{
+    cerr << "Random move from clear of enemies zone" << endl;
+    drone.zone = -1;
+    drone.aimZone = -1;
+    Zones notMyZones = removeElementWithId<Zones>(zones, drone.id);
+    moveDrone(notMyZones, drone, distanceFunction);
+}
 
 
 template<typename F>
@@ -298,31 +323,20 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
     }
     if(getRandomInt(1, 1000) > RAND_FACTOR && currZone.enemyDrones.empty())
     {
-        cerr << "Random move from clear of enemies zone" << endl;
-        drone.zone = -1;
-        drone.aimZone = -1;
-        Zones notMyZones = removeElementWithId<Zones>(zones, drone.id);
-        moveDrone(notMyZones, drone, distanceFunction);
+        moveFromMyZone(zones, drone, distanceFunction);
     }
     else if(getRandomInt(1, 1000) > 900)
     {
-        cerr << "Random move from enemies zone" << endl;
-        const Zone& zone = *std::min_element(std::begin(zones), std::end(zones),
-        [](const Zone& zone1, const Zone& zone2){
-            return zone1.enemyDrones.size() < zone2.enemyDrones.size();
-        });;
-
-        drone.aimZone = zone.id;
-        cout << zone.x << " " << zone.y << endl;
+        moveFromEnemyZone(zones, drone);
     }
     else
     {
         cerr << "Random move" << endl;
-        // drone.zone = -1;
-        // moveDrone(zones, drone, distanceFunction);
         cout << currZone.x << " " << currZone.y << endl;
     }
 }
+
+
 
 int  calculateForceMisproportion(const Zone& zone)
 {
