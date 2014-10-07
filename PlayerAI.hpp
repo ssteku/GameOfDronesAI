@@ -21,8 +21,8 @@ typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
 static std::default_random_engine generator;
 const float ZONE_RAY = 100.0f;
-int RAND_FACTOR = 400;
-const int MISPROP_FACTOR = 10;
+int RAND_FACTOR = 533;
+const int MISPROP_FACTOR = 100;
 
 struct Drone
 {
@@ -206,6 +206,17 @@ typename T::value_type findElementWithId(const T& t, int id)
     return *currElementIt;
 }
 
+template<typename T>
+T removeElementWithId(const T& t, int id)
+{
+    T newContainer(t.size());
+    auto it = copy_if(std::begin(t), std::end(t), std::begin(newContainer), [id]( const typename T::value_type& element){
+        return element.id != id;
+    });
+    newContainer.resize(std::distance(std::begin(newContainer),it));
+    return newContainer;
+}
+
 Zones getEmptyZones(const Zones& zones, const Players& players, const World& world)
 {
     Zones emptyZones(zones.size());
@@ -289,19 +300,20 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
     {
         cerr << "Random move from clear of enemies zone" << endl;
         drone.zone = -1;
-        moveDrone(zones, drone, distanceFunction);
+        Zones notMyZones = removeElementWithId<Zones>(zones, drone.id);
+        moveDrone(notMyZones, drone, distanceFunction);
     }
-    // else if(getRandomInt(1, 1000) > RAND_FACTOR*9)
-    // {
-    //     cerr << "Random move from enemies zone" << endl;
-    //     const Zone& zone = *std::min_element(std::begin(zones), std::end(zones),
-    //     [](const Zone& zone1, const Zone& zone2){
-    //         return zone1.enemyDrones.size() < zone2.enemyDrones.size();
-    //     });;
+    else if(getRandomInt(1, 1000) > 900)
+    {
+        cerr << "Random move from enemies zone" << endl;
+        const Zone& zone = *std::min_element(std::begin(zones), std::end(zones),
+        [](const Zone& zone1, const Zone& zone2){
+            return zone1.enemyDrones.size() < zone2.enemyDrones.size();
+        });;
 
-    //     drone.aimZone = zone.id;
-    //     cout << zone.x << " " << zone.y << endl;
-    // }
+        drone.aimZone = zone.id;
+        cout << zone.x << " " << zone.y << endl;
+    }
     else
     {
         cerr << "Random move" << endl;
@@ -313,7 +325,7 @@ void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
 
 int  calculateForceMisproportion(const Zone& zone)
 {
-    return abs(zone.playerDrones.size() - zone.enemyDrones.size());
+    return (zone.playerDrones.size() - zone.enemyDrones.size());
 }
 
 int calculateValue(const Drone& drone, const Zone& zone)
