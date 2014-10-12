@@ -37,15 +37,40 @@ struct Drone
         return zone != -1;
     }
 
-    void move(int aimZone, int x, int y)
+    void move(int aimZoneId, int x, int y)
     {
-        this->aimZone = aimZone;
+        setAimZone(aimZoneId);
+        cerr << "Moving drone: " << id << " to: " << x << ", " << y << endl;
         cout << x << " " << y << endl;
     }
 
-    bool droneHasNoRelatedZone()
+    bool droneHasNoRelatedZone() const
     {
         return aimZone == -1 && zone == -1;
+    }
+
+    void setAimZone(int aimZoneId)
+    {
+        aimZone = aimZoneId;
+    }
+
+    void clearAimZone()
+    {
+        aimZone = -1;
+    }
+
+    void setZone(int zoneId)
+    {
+        zone = zoneId;
+        if(zone == aimZone)
+        {
+            aimZone = -1;
+        }
+    }
+
+    void clearZone()
+    {
+        zone = -1;
     }
 
     int x;
@@ -80,7 +105,8 @@ struct Zone
     }
 
     unsigned long  calculateForceMisproportion()const {
-        return enemyDrones.size() > playerDrones.size() ? enemyDrones.size() - playerDrones.size() : 2000000;
+        return enemyDrones.size() > playerDrones.size()+aimingDrones.size() ?
+                enemyDrones.size() - playerDrones.size()+aimingDrones.size() : 2000000;
     }
 
     int x; // corresponds to the position of the center of a zone. A zone is a circle with a radius of 100 units.
@@ -89,6 +115,7 @@ struct Zone
     int ownerId;
     Drones enemyDrones;
     Drones playerDrones;
+    Drones aimingDrones;
 };
 
 ostream& operator<<(ostream& stream, const Zone& zone)
@@ -133,7 +160,7 @@ public:
     }
 
     template<typename F>
-    static Zone getClosestZone(const Zones& zones, F distanceFunction)
+    static const Zone& getClosestZone(const Zones& zones, F distanceFunction)
     {
         return *std::min_element(std::begin(zones), std::end(zones),
                 [&distanceFunction](const Zone& zone1, const Zone& zone2){
@@ -145,15 +172,6 @@ public:
     {
         for_each(std::begin(zones), std::end(zones), [](Zone& zone){
             cin >> zone.ownerId; cin.ignore();
-        });
-    }
-
-    static void clearZones(Zones& zones)
-    {
-        for_each(std::begin(zones), std::end(zones), [](Zone& zone){
-            zone.ownerId = -1;
-            zone.enemyDrones.clear();
-            zone.playerDrones.clear();
         });
     }
 
@@ -265,7 +283,7 @@ public:
     }
 
     template<typename T>
-    static typename T::value_type findElementWithId(const T& t, int id)
+    static const typename T::value_type& findElementWithId(const T& t, int id)
     {
         auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
             return element.id == id;
@@ -324,62 +342,56 @@ class DronesUtils
 {
 public:
     template<typename F>
-    static void moveDrone(const Zones& zones, Drone& drone, F distanceFunction)
+    static const Zone& chooseZone(const Zones& zones, const Drone& drone, F distanceFunction)
     {
         if(drone.droneHasNoRelatedZone())
         {
-            auto closestZone = ZoneUtils::getClosestZone(zones, distanceFunction);
-            drone.move(closestZone.id, closestZone.x, closestZone.y);
+            return ZoneUtils::getClosestZone(zones, distanceFunction);
         }
         else
         {
-            Zone currZone = Utils::findElementWithId<Zones>(zones,  drone.aimZone);
-            drone.move(currZone.id, currZone.x, currZone.y);
+            return Utils::findElementWithId<Zones>(zones,  drone.aimZone);
         }
     }
 
-    static void moveFromEnemyZone(const Zones& zones, Drone& drone)
+    static Zone chooseZoneWhenInEnemyZone(const Zones &zones, int droneZoneId)
     {
         cerr << "Random move from enemies zone" << endl;
-        drone.zone = -1;
-        Zones notMyZones = Utils::removeElementWithId<Zones>(zones, drone.zone);
-        const Zone& zone = ZoneUtils::getZoneWithTheLeastEnemies(notMyZones);
-        drone.move(zone.id, zone.x, zone.y);
+        const Zones& notMyZones = Utils::removeElementWithId<Zones>(zones, droneZoneId);
+        const Zone& chosenZone = ZoneUtils::getZoneWithTheLeastEnemies(notMyZones);
+        cerr << "chosenZone id: " << chosenZone.id << " xy: " << chosenZone.x << ", " << chosenZone.y << endl;
+        return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
     }
 
     template<typename F>
-    static void moveFromMyZone(const Zones& zones, Drone& drone, F distanceFunction)
+    static const Zone& chooseZoneWhenInMyZone(const Zones &zones, int droneZoneId, F distanceFunction)
     {
         cerr << "Random move from clear of enemies zone" << endl;
+        Zones notMyZones = Utils::removeElementWithId<Zones>(zones, droneZoneId);
+        const Zone& chosenZone = ZoneUtils::getClosestZone(zones, distanceFunction);
+        return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
 
-        drone.aimZone = -1;
-        Zones notMyZones = Utils::removeElementWithId<Zones>(zones, drone.zone);
-        drone.zone = -1;
-        moveDrone(notMyZones, drone, distanceFunction);
     }
 
 
     template<typename F>
-    static void animateDroneInZone(const Zones& zones, Drone& drone, F distanceFunction)
+    static const Zone& animateDroneInZone(const Zones& zones, int droneZoneId, F distanceFunction)
     {
-        Zone currZone = Utils::findElementWithId<Zones>(zones,  drone.zone);
-        cerr << "findIfDroneIsInZone" << endl;
-        if(drone.zone == drone.aimZone)
-        {
-            drone.aimZone = -1;
-        }
+        cerr << "animateDroneInZone" << endl;
+
+        const Zone& currZone = Utils::findElementWithId<Zones>(zones,  droneZoneId);
+
         if(Utils::getRandomInt(1, 1000) > RAND_FACTOR && currZone.enemyDrones.empty())
         {
-            moveFromMyZone(zones, drone, distanceFunction);
+            return chooseZoneWhenInMyZone(zones, droneZoneId, distanceFunction);
         }
         else if(Utils::getRandomInt(1, 1000) > RAND_ENEMY_FACTOR)
         {
-            moveFromEnemyZone(zones, drone);
+            return chooseZoneWhenInEnemyZone(zones, droneZoneId);
         }
         else
         {
-            cerr << "Random move" << endl;
-            cout << currZone.x << " " << currZone.y << endl;
+            return currZone;
         }
     }
 
@@ -396,36 +408,45 @@ public:
         Zones unownedZones = ZoneUtils::getUnownedZones(zones);
         Zones emptyZones = ZoneUtils::getEmptyEnemyZones(zones, world.id);
 
-
         if (drone.findIfDroneIsInZone())
         {
             cerr << "findIfDroneIsInZone" << endl;
-            animateDroneInZone(zones, drone, valueFunc);
+            Drone originalDrone = drone;
+            drone.clearZone();
+            const Zone& chosenZone = animateDroneInZone(zones, originalDrone.zone, valueFunc);
+            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
         }
         else if(!unownedZones.empty())
         {
             cerr << "unownedZones" << endl;
-            drone.aimZone = -1;
-            moveDrone(unownedZones, drone, distanceFunc);
+            drone.clearAimZone();
+            const Zone& chosenZone = chooseZone(unownedZones, drone, distanceFunc);
+            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
+
         }
         else if (!emptyZones.empty())
         {
             cerr << "emptyZones" << endl;
-            drone.aimZone = -1;
-            moveDrone(emptyZones, drone, distanceFunc);
+            drone.clearAimZone();
+            const Zone& chosenZone = chooseZone(emptyZones, drone, distanceFunc);
+            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
+
         }
         else
         {
             cerr << "Default" << endl;
-            moveDrone(zones, drone, valueFunc);
+            const Zone& chosenZone = chooseZone(zones, drone, valueFunc);
+            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
         }
+
+
     }
 
     static void associateDroneWithZone(const Player& player, Drone& drone, Zone& zone, const World& world)
     {
         if (Utils::calculateDistance(drone, zone) < ZONE_RAY)
         {
-            drone.zone = zone.id;
+            drone.setZone(zone.id);
             cerr << "Association! drone: " << drone.id << endl;
             if(PlayerUtils::isMyPlayer(player, world))
             {
