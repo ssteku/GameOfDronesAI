@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <map>
 #include <algorithm>
 #include <stdexcept>
 #include <math.h>
@@ -19,19 +20,87 @@ struct Player;
 typedef std::vector<Drone> Drones;
 typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
+typedef double Distance;
 static std::default_random_engine generator;
 
 const float ZONE_RAY = 99.9f;
 int RAND_FACTOR = 630;
 int RAND_ENEMY_FACTOR = 900;
 const int MISPROP_FACTOR = 1500;
+class Utils
+{
+public:
+    static int getRandomInt(int min, int max)
+    {
+        std::uniform_int_distribution<int> distribution(min, max);
+        int randint = distribution(generator);  // generates number in the range 1..6
+        cerr << "randint: " << randint << endl;
+        return randint;
+    }
+
+    template<typename T, typename U>
+    static double calculateDistance(const T& t, const U& u)
+    {
+        return  sqrt((u.x - t.x)*(u.x - t.x) + (u.y - t.y)*(u.y - t.y));
+    }
+
+    template<typename T>
+    static const typename T::value_type& findElementWithId(const T& t, int id)
+    {
+        auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
+            return element.id == id;
+        });
+        if (currElementIt == std::end(t))
+        {
+            cerr << "There was no zone with id: " + std::to_string(id) << endl;
+            throw std::logic_error("There was no zone with id: " + std::to_string(id));
+        }
+
+        return *currElementIt;
+    }
+
+    template<typename T>
+    static typename T::value_type& findElementReferenceWithId(T& t, int id)
+    {
+        auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
+            return element.id == id;
+        });
+        if (currElementIt == std::end(t))
+        {
+            cerr << "There was no zone with id: " + std::to_string(id) << endl;
+            throw std::logic_error("There was no zone with id: " + std::to_string(id));
+        }
+
+        return *currElementIt;
+    }
+
+    template<typename T>
+    static T removeElementWithId(const T& t, int id)
+    {
+        T newContainer(t.size());
+        auto it = copy_if(std::begin(t), std::end(t), std::begin(newContainer), [id]( const typename T::value_type& element){
+            return element.id != id;
+        });
+        newContainer.resize(std::distance(std::begin(newContainer),it));
+        return newContainer;
+    }
+
+    template<typename T, typename Z>
+    void readDistances(const T& t, Z& z)
+    {
+        std::transform(std::begin(t), std::end(t), std::inserter(z.distanceMap, std::end(z.distanceMap)), [z]( const typename T::value_type& t_value){
+            return std::make_pair(t_value.id, Utils::calculateDistance(t_value, z));
+        });
+    }
+};
 
 struct Drone
 {
+
     Drone(int id) : id(id), zone(-1), aimZone(-1)
     {}
 
-    bool findIfDroneIsInZone() const
+    bool isInZone() const
     {
         cerr << "Drone is in zone: " << zone << endl;
         return zone != -1;
@@ -44,9 +113,19 @@ struct Drone
         cout << x << " " << y << endl;
     }
 
-    bool droneHasNoRelatedZone() const
+    bool hasNoRelatedZone() const
     {
         return aimZone == -1 && zone == -1;
+    }
+
+    bool hasAimZone()
+    {
+        return aimZone != -1;
+    }
+
+    bool hasDifferentZoneThanAimZone()
+    {
+        return isInZone() && hasAimZone() && aimZone != zone;
     }
 
     void setAimZone(int aimZoneId)
@@ -73,11 +152,18 @@ struct Drone
         zone = -1;
     }
 
+
+    bool operator<(const Drone& drone)
+    {
+        return drone.id < id;
+    }
+
     int x;
     int y;
     int id;
     int zone;
     int aimZone;
+    std::map<int, Distance> distanceMap;
 };
 
 istream& operator>>(istream& stream, Drone& drone)
@@ -113,6 +199,11 @@ struct Zone
         cerr << "   aimingDrones.size(): " << aimingDrones.size() << endl;
         cerr << "   misproportion: " << misproportion << endl;
         return misproportion;
+    }
+
+    bool operator<(const Zone& zone)
+    {
+        return zone.id < id;
     }
 
     int x; // corresponds to the position of the center of a zone. A zone is a circle with a radius of 100 units.
@@ -283,64 +374,7 @@ public:
     }
 };
 
-class Utils
-{
-public:
-    static int getRandomInt(int min, int max)
-    {
-        std::uniform_int_distribution<int> distribution(min, max);
-        int randint = distribution(generator);  // generates number in the range 1..6
-        cerr << "randint: " << randint << endl;
-        return randint;
-    }
 
-    template<typename T, typename U>
-    static double calculateDistance(const T& t, const U& u)
-    {
-        return  sqrt((u.x - t.x)*(u.x - t.x) + (u.y - t.y)*(u.y - t.y));
-    }
-
-    template<typename T>
-    static const typename T::value_type& findElementWithId(const T& t, int id)
-    {
-        auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
-            return element.id == id;
-        });
-        if (currElementIt == std::end(t))
-        {
-            cerr << "There was no zone with id: " + std::to_string(id) << endl;
-            throw std::logic_error("There was no zone with id: " + std::to_string(id));
-        }
-
-        return *currElementIt;
-    }
-
-    template<typename T>
-    static typename T::value_type& findElementReferenceWithId(T& t, int id)
-    {
-        auto currElementIt = find_if(std::begin(t), std::end(t), [id]( const typename T::value_type& element){
-            return element.id == id;
-        });
-        if (currElementIt == std::end(t))
-        {
-            cerr << "There was no zone with id: " + std::to_string(id) << endl;
-            throw std::logic_error("There was no zone with id: " + std::to_string(id));
-        }
-
-        return *currElementIt;
-    }
-
-    template<typename T>
-    static T removeElementWithId(const T& t, int id)
-    {
-        T newContainer(t.size());
-        auto it = copy_if(std::begin(t), std::end(t), std::begin(newContainer), [id]( const typename T::value_type& element){
-            return element.id != id;
-        });
-        newContainer.resize(std::distance(std::begin(newContainer),it));
-        return newContainer;
-    }
-};
 
 class WorldUtils
 {
@@ -374,10 +408,12 @@ public:
 class DronesUtils
 {
 public:
+
     template<typename F>
     static const Zone& chooseZone(const Zones& zones, const Drone& drone, int playerId, F distanceFunction)
     {
-        if(drone.droneHasNoRelatedZone())
+        cerr << "   chooseZone" << endl;
+        if(drone.hasNoRelatedZone())
         {
             Zones notMyZones = ZoneUtils::getNotMyZones(zones, playerId);
             if(notMyZones.empty())
@@ -392,6 +428,7 @@ public:
         }
         else
         {
+            cerr << "drone: " << drone.id << " move to: " << drone.aimZone << endl;
             return Utils::findElementWithId<Zones>(zones,  drone.aimZone);
         }
     }
@@ -436,7 +473,7 @@ public:
         {
             return chooseZoneWhenInMyZone(zones, droneZoneId, playerId, distanceFunction);
         }
-        else if(Utils::getRandomInt(1, 1000) > RAND_ENEMY_FACTOR)
+        else if(Utils::getRandomInt(1, 1000) > RAND_ENEMY_FACTOR && !currZone.enemyDrones.empty())
         {
             return chooseZoneWhenInEnemyZone(zones, droneZoneId);
         }
@@ -456,15 +493,23 @@ public:
 
     static void animateDrone(const Players& players, const World& world, Zones& zones, Drone& drone)
     {
+        cerr << ">>>>>>>>>>> animateDrone drone: " << drone.id << "<<<<<<<<<<<<" << endl;
         auto distanceFunc = std::bind(Utils::calculateDistance<Drone, Zone>, cref(drone), _1);
         auto valueFunc = std::bind(calculateValue, cref(drone), _1);
 
         Zones unownedZones = ZoneUtils::getUnownedZones(zones);
         Zones emptyZones = ZoneUtils::getEmptyEnemyZones(zones, world.id);
 
-        if (drone.findIfDroneIsInZone())
+        if((drone.hasAimZone() && !drone.isInZone()) || drone.hasDifferentZoneThanAimZone())
         {
-            cerr << "findIfDroneIsInZone" << endl;
+
+            Zone& chosenZone = Utils::findElementReferenceWithId<Zones>(zones,  drone.aimZone);
+            chosenZone.aimingDrones.push_back(drone);
+            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
+        }
+        else if (drone.isInZone())
+        {
+            cerr << "->isInZone" << endl;
             Drone originalDrone = drone;
             drone.clearZone();
             const Zone& chosenZone = animateDroneInZone(zones, originalDrone.zone, world.id, valueFunc);
@@ -474,7 +519,7 @@ public:
         }
         else if(!unownedZones.empty())
         {
-            cerr << "unownedZones" << endl;
+            cerr << "->unownedZones" << endl;
             drone.clearAimZone();
             const Zone& chosenZone = chooseZone(unownedZones, drone, world.id, distanceFunc);
             Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
@@ -484,7 +529,7 @@ public:
         }
         else if (!emptyZones.empty())
         {
-            cerr << "emptyZones" << endl;
+            cerr << "->emptyZones" << endl;
             drone.clearAimZone();
             const Zone& chosenZone = chooseZone(emptyZones, drone, world.id, distanceFunc);
             Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
@@ -494,7 +539,7 @@ public:
         }
         else
         {
-            cerr << "Default" << endl;
+            cerr << "->Default" << endl;
             const Zone& chosenZone = chooseZone(zones, drone, world.id, valueFunc);
             Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
             originalZone.aimingDrones.push_back(drone);
