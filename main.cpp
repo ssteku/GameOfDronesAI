@@ -21,6 +21,7 @@ typedef std::vector<Drone> Drones;
 typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
 typedef double Distance;
+typedef std::map<int, Distance> DistanceMap;
 static std::default_random_engine generator;
 
 const float ZONE_RAY = 99.9f;
@@ -86,11 +87,23 @@ public:
     }
 
     template<typename T, typename Z>
-    void readDistances(const T& t, Z& z)
+    static Z readDistances(const T& t, const Z& z)
     {
-        std::transform(std::begin(t), std::end(t), std::inserter(z.distanceMap, std::end(z.distanceMap)), [z]( const typename T::value_type& t_value){
+        Z newZ = z;
+        std::transform(std::begin(t), std::end(t), std::inserter(newZ.distanceMap, std::end(newZ.distanceMap)), [&z]( const typename T::value_type& t_value){
             return std::make_pair(t_value.id, Utils::calculateDistance(t_value, z));
         });
+        return newZ;
+    }
+
+    template<typename T, typename Z>
+    static T fillDistances(const T& t, const Z& z)
+    {
+        T newT;
+        std::transform(std::begin(t), std::end(t), std::back_inserter(newT), [&z](const typename T::value_type& t_value){
+            return Utils::readDistances(z, t_value);
+        });
+        return newT;
     }
 };
 
@@ -163,7 +176,7 @@ struct Drone
     int id;
     int zone;
     int aimZone;
-    std::map<int, Distance> distanceMap;
+    DistanceMap distanceMap;
 };
 
 istream& operator>>(istream& stream, Drone& drone)
@@ -175,7 +188,11 @@ istream& operator>>(istream& stream, Drone& drone)
 ostream& operator<<(ostream& stream, const Drone& drone)
 {
     stream << "Drone id: " << drone.id << ", x: " << drone.x << ", y: "
-            <<  drone.y << ", zone: " << drone.zone << ", aim: " << drone.aimZone;
+            <<  drone.y << ", zone: " << drone.zone << ", aim: " << drone.aimZone << endl;
+    stream << "Distances: " << endl;
+    for_each(std::begin(drone.distanceMap), std::end(drone.distanceMap), [&stream](const std::pair<int, Distance>& distance){
+        stream << "(" << distance.first << "," << distance.second << "),";
+    });
     return stream;
 }
 
@@ -213,11 +230,12 @@ struct Zone
     Drones enemyDrones;
     Drones playerDrones;
     Drones aimingDrones;
+    DistanceMap distanceMap;
 };
 
 ostream& operator<<(ostream& stream, const Zone& zone)
 {
-    stream << "Zone: " << zone.x << ", " << zone.y << ", owned: " << zone.ownerId << endl;
+    stream << "Zone id: " << zone.id << " , xy: " << zone.x << ", " << zone.y << ", owned: " << zone.ownerId << endl;
     stream << "Enemies: ";
     for_each(std::begin(zone.enemyDrones), std::end(zone.enemyDrones), [&stream](const Drone& drone){
         stream << drone.id << ", ";
@@ -226,12 +244,66 @@ ostream& operator<<(ostream& stream, const Zone& zone)
     for_each(std::begin(zone.playerDrones), std::end(zone.playerDrones), [&stream](const Drone& drone){
         stream << drone.id << ", ";
     });
+
+    stream << "Distances: " << endl;
+    for_each(std::begin(zone.distanceMap), std::end(zone.distanceMap), [&stream](const std::pair<int, Distance>& distance){
+        stream << "(" << distance.first << "," << distance.second << "),";
+    });
     return stream;
 }
 
 istream& operator>>(istream& stream, Zone& zone)
 {
     stream >> zone.x >> zone.y;
+    return stream;
+}
+
+struct World
+{
+    static unsigned int p; // number of players in the game (2 to 4 players)
+    static unsigned int id; // ID of your player (0, 1, 2, or 3)
+    static unsigned int d; // number of drones in each team (3 to 11)
+    static unsigned int z; // number of zones on the map (4 to 8)
+};
+
+unsigned int World::p = 0;
+unsigned int World::id = 0;
+unsigned int World::d = 0;
+unsigned int World::z = 0;
+
+ostream& operator<<(ostream& stream, World& world)
+{
+    stream << world.p << ", " << world.id << ", " << world.d << ", " << world.z << endl;
+    return stream;
+}
+istream& operator>>(istream& stream, World& world)
+{
+    stream >> world.p >>  world.id >>  world.d >>  world.z;
+    return stream;
+}
+
+struct Player
+{
+    Player(int id, bool my) : id(id), my(my)
+    {
+    }
+
+    bool isMy() const
+    {
+        return my;
+    }
+
+    int id;
+    bool my;
+    Drones drones;
+};
+
+ostream& operator<<(ostream& stream,const Player& player)
+{
+    stream << "Player id: " << player.id << ", drones: " << endl;
+    for_each(std::begin(player.drones), std::end(player.drones), [&stream](const Drone& drone){
+        stream << "    " << drone << endl;
+    });
     return stream;
 }
 
@@ -277,11 +349,15 @@ public:
                 });
     }
 
-    static void readZonesOwnership(Zones& zones)
+    static Zones readZonesOwnership(const Zones& zones)
     {
-        for_each(std::begin(zones), std::end(zones), [](Zone& zone){
-            cin >> zone.ownerId; cin.ignore();
+        Zones updatedZones;
+        std::transform(std::begin(zones), std::end(zones), std::back_inserter(updatedZones), [](const Zone& zone){
+            Zone newZone = zone;
+            cin >> newZone.ownerId; cin.ignore();
+            return newZone;
         });
+        return updatedZones;
     }
 
     static const Zone& getZoneWithTheLeastEnemies(const Zones& zones)
@@ -302,56 +378,52 @@ public:
         unownedZones.resize(std::distance(unownedZones.begin(),it));
         return unownedZones;
     }
-};
 
-struct World
-{
-    static unsigned int p; // number of players in the game (2 to 4 players)
-    static unsigned int id; // ID of your player (0, 1, 2, or 3)
-    static unsigned int d; // number of drones in each team (3 to 11)
-    static unsigned int z; // number of zones on the map (4 to 8)
-};
-
-unsigned int World::p = 0;
-unsigned int World::id = 0;
-unsigned int World::d = 0;
-unsigned int World::z = 0;
-
-ostream& operator<<(ostream& stream, World& world)
-{
-    stream << world.p << ", " << world.id << ", " << world.d << ", " << world.z << endl;
-    return stream;
-}
-istream& operator>>(istream& stream, World& world)
-{
-    stream >> world.p >>  world.id >>  world.d >>  world.z;
-    return stream;
-}
-
-struct Player
-{
-    Player(int id) : id(id)
+    static Zone associateDroneWithZone(const Player& player,const Zone& zone, const Drone& drone)
     {
+        Zone newZone = zone;
+        if (Utils::calculateDistance(drone, zone) < ZONE_RAY)
+        {
+            cerr << "Association! drone: " << drone.id << endl;
+            if(player.isMy())
+            {
+                newZone.playerDrones.push_back(drone);
+            }
+            else
+            {
+                newZone.enemyDrones.push_back(drone);
+            }
+        }
+        return newZone;
     }
-    int id;
-    Drones drones;
+
+
+    static Zone associatePlayerDronesWithZone(const Zone& zone, const Player& player)
+    {
+        auto accumulateDrones = std::bind(associateDroneWithZone, player, _1, _2);
+        return std::accumulate(std::begin(player.drones), std::end(player.drones), zone, accumulateDrones);
+    }
+
+    static Zones associateZonesWithDrones(const Zones &zones, const Players &players)
+    {
+        Zones zonesWithDrones;
+        std::transform(std::begin(zones), std::end(zones), std::back_inserter(zonesWithDrones), [&players](const Zone& zone){
+            return std::accumulate(std::begin(players), std::end(players), zone, associatePlayerDronesWithZone);
+        });
+        return zonesWithDrones;
+    }
 };
 
-ostream& operator<<(ostream& stream,const Player& player)
-{
-    stream << "Player id: " << player.id << ", drones: " << endl;
-    for_each(std::begin(player.drones), std::end(player.drones), [&stream](const Drone& drone){
-        stream << "    " << drone << endl;
-    });
-    return stream;
-}
+
 
 class PlayerUtils
 {
 public:
-    static Player &findMyPlayer(const World& world, Players& players)
+    static Player &findMyPlayer(Players& players)
     {
-        auto myPlayer = find_if(std::begin(players), std::end(players), std::bind(PlayerUtils::isMyPlayer, _1, world));
+        auto myPlayer = find_if(std::begin(players), std::end(players), [](const Player& player){
+            return player.isMy();
+        });
         if (myPlayer == std::end(players))
         {
             cerr << "Couldn't find my player" << endl;
@@ -368,10 +440,35 @@ public:
         });
     }
 
-    static bool isMyPlayer(const Player& player, const World& world)
+    static bool isDroneInZone(const Drone& drone, const Zone& zone)
     {
-        return world.id == player.id;
+        return (Utils::calculateDistance(drone, zone) < ZONE_RAY);
     }
+
+
+    static Player associateZonesWithPlayerDrones( const Player& player, const Zone& zone)
+    {
+        Player newPlayer = player;
+        newPlayer.drones.clear();
+        std::transform(std::begin(player.drones), std::end(player.drones), std::back_inserter(newPlayer.drones), [&zone](const Drone& drone){
+            Drone newDrone = drone;
+            if(isDroneInZone(newDrone, zone))
+                newDrone.zone = zone.id;
+            return newDrone;
+        });
+        return newPlayer;
+    }
+
+    static Players associatePlayersWithZones(const Zones &zones, const Players &players)
+    {
+        Players playersWithZones;
+        std::transform(std::begin(players), std::end(players), std::back_inserter(playersWithZones), [&zones](const Player& player){
+            return std::accumulate(std::begin(zones), std::end(zones), player, associateZonesWithPlayerDrones);
+        });
+        return playersWithZones;
+    }
+
+
 };
 
 
@@ -384,7 +481,7 @@ public:
         Players players;
         players.reserve(world.p);
         for (int i = 0; i < world.p; i++) {
-            players.emplace_back(Player(i));
+            players.emplace_back(Player(i, world.id == i));
             for (int j = 0; j < world.d; j++) {
                 players.back().drones.emplace_back(Drone(j));
                 cin >> players.back().drones.back(); cin.ignore();
@@ -403,175 +500,13 @@ public:
         }
         return zones;
     }
+
+
 };
 
 class DronesUtils
 {
 public:
-
-    template<typename F>
-    static const Zone& chooseZone(const Zones& zones, const Drone& drone, int playerId, F distanceFunction)
-    {
-        cerr << "   chooseZone" << endl;
-        if(drone.hasNoRelatedZone())
-        {
-            Zones notMyZones = ZoneUtils::getNotMyZones(zones, playerId);
-            if(notMyZones.empty())
-            {
-                return ZoneUtils::getClosestZone(zones, distanceFunction);
-            }
-            else
-            {
-                Zone chosenZone = ZoneUtils::getClosestZone(notMyZones, distanceFunction);
-                return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
-            }
-        }
-        else
-        {
-            cerr << "drone: " << drone.id << " move to: " << drone.aimZone << endl;
-            return Utils::findElementWithId<Zones>(zones,  drone.aimZone);
-        }
-    }
-
-    static const Zone& chooseZoneWhenInEnemyZone(const Zones &zones, int droneZoneId)
-    {
-        cerr << "Random move from enemies zone" << endl;
-        const Zones& notMyZones = Utils::removeElementWithId<Zones>(zones, droneZoneId);
-        const Zone& chosenZone = ZoneUtils::getZoneWithTheLeastEnemies(notMyZones);
-        cerr << "chosenZone id: " << chosenZone.id << " xy: " << chosenZone.x << ", " << chosenZone.y << endl;
-        return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
-    }
-
-    template<typename F>
-    static const Zone& chooseZoneWhenInMyZone(const Zones &zones, int droneZoneId, int playerId, F distanceFunction)
-    {
-        cerr << "Random move from clear of enemies zone" << endl;
-        Zones notMyZones = Utils::removeElementWithId<Zones>(zones, droneZoneId);
-
-        Zones notPlayersZones = ZoneUtils::getNotMyZones(notMyZones, playerId);
-        if(notPlayersZones.empty())
-        {
-            Zone chosenZone = ZoneUtils::getClosestZone(notMyZones, distanceFunction);
-            return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
-        }
-        else
-        {
-            Zone chosenZone = ZoneUtils::getClosestZone(notPlayersZones, distanceFunction);
-            return Utils::findElementWithId<Zones>(zones,  chosenZone.id);
-        }
-    }
-
-
-    template<typename F>
-    static const Zone& animateDroneInZone(const Zones& zones, int droneZoneId, int playerId, F distanceFunction)
-    {
-        cerr << "animateDroneInZone" << endl;
-
-        const Zone& currZone = Utils::findElementWithId<Zones>(zones,  droneZoneId);
-
-        if(Utils::getRandomInt(1, 1000) > RAND_FACTOR && currZone.enemyDrones.empty())
-        {
-            return chooseZoneWhenInMyZone(zones, droneZoneId, playerId, distanceFunction);
-        }
-        else if(Utils::getRandomInt(1, 1000) > RAND_ENEMY_FACTOR && !currZone.enemyDrones.empty())
-        {
-            return chooseZoneWhenInEnemyZone(zones, droneZoneId);
-        }
-        else
-        {
-            return currZone;
-        }
-    }
-
-    static double calculateValue(const Drone& drone, const Zone& zone)
-    {
-        double dist = Utils::calculateDistance(drone, zone);
-        double value =  zone.calculateForceMisproportion()*MISPROP_FACTOR + dist;
-        cerr << "Zone: " << zone.id << " mispr : " << zone.calculateForceMisproportion()*MISPROP_FACTOR << " dist: " << dist << endl;
-        return value;
-    }
-
-    static void animateDrone(const Players& players, const World& world, Zones& zones, Drone& drone)
-    {
-        cerr << ">>>>>>>>>>> animateDrone drone: " << drone.id << "<<<<<<<<<<<<" << endl;
-        auto distanceFunc = std::bind(Utils::calculateDistance<Drone, Zone>, cref(drone), _1);
-        auto valueFunc = std::bind(calculateValue, cref(drone), _1);
-
-        Zones unownedZones = ZoneUtils::getUnownedZones(zones);
-        Zones emptyZones = ZoneUtils::getEmptyEnemyZones(zones, world.id);
-
-        if((drone.hasAimZone() && !drone.isInZone()) || drone.hasDifferentZoneThanAimZone())
-        {
-
-            Zone& chosenZone = Utils::findElementReferenceWithId<Zones>(zones,  drone.aimZone);
-            chosenZone.aimingDrones.push_back(drone);
-            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
-        }
-        else if (drone.isInZone())
-        {
-            cerr << "->isInZone" << endl;
-            Drone originalDrone = drone;
-            drone.clearZone();
-            const Zone& chosenZone = animateDroneInZone(zones, originalDrone.zone, world.id, valueFunc);
-            Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
-            originalZone.aimingDrones.push_back(drone);
-            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
-        }
-        else if(!unownedZones.empty())
-        {
-            cerr << "->unownedZones" << endl;
-            drone.clearAimZone();
-            const Zone& chosenZone = chooseZone(unownedZones, drone, world.id, distanceFunc);
-            Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
-            originalZone.aimingDrones.push_back(drone);
-            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
-
-        }
-        else if (!emptyZones.empty())
-        {
-            cerr << "->emptyZones" << endl;
-            drone.clearAimZone();
-            const Zone& chosenZone = chooseZone(emptyZones, drone, world.id, distanceFunc);
-            Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
-            originalZone.aimingDrones.push_back(drone);
-            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
-
-        }
-        else
-        {
-            cerr << "->Default" << endl;
-            const Zone& chosenZone = chooseZone(zones, drone, world.id, valueFunc);
-            Zone& originalZone = Utils::findElementReferenceWithId<Zones>(zones,  chosenZone.id);
-            originalZone.aimingDrones.push_back(drone);
-            drone.move(chosenZone.id, chosenZone.x, chosenZone.y);
-        }
-
-
-    }
-
-    static void associateDroneWithZone(const Player& player, Drone& drone, Zone& zone, const World& world)
-    {
-        if (Utils::calculateDistance(drone, zone) < ZONE_RAY)
-        {
-            drone.setZone(zone.id);
-            cerr << "Association! drone: " << drone.id << endl;
-            if(PlayerUtils::isMyPlayer(player, world))
-            {
-                zone.playerDrones.push_back(drone);
-            }
-            else
-            {
-                zone.enemyDrones.push_back(drone);
-            }
-        }
-    }
-
-    static void associatePlayerWithZone(Player& player, Zone& zone, const World& world)
-    {
-        for_each(std::begin(player.drones), std::end(player.drones),
-                std::bind(associateDroneWithZone, cref(player), _1, ref(zone), world));
-    }
-
     static Drones updateDrone(const Drones& oldDrones, Drones resultDrones, const Drone& newDrone)
     {
         Drone oldDrone = Utils::findElementWithId(oldDrones, newDrone.id);
@@ -589,30 +524,43 @@ public:
         resultDrones = accumulate(std::begin(newDrones), std::end(newDrones), Drones(), updateDronesFunc);
         return resultDrones;
     }
+};
 
-
-    static void associateDronesWithZones(Zones &zones, Players &players, const World &world)
+class Strategos
+{
+public:
+    static Drones giveOrders(const Zones& zones, const Player& player)
     {
-        for_each(std::begin(zones), std::end(zones), [&players, &world](Zone& zone){
-            for_each(std::begin(players), std::end(players), std::bind(associatePlayerWithZone, _1, ref(zone), world));
+        Drones newDrones;
+        std::transform(std::begin(player.drones), std::end(player.drones), std::back_inserter(newDrones), [](const Drone& drone){
+            Drone newDrone = drone;
+            newDrone.move(-1, newDrone.x + 1, newDrone.y + 1);
+            return newDrone;
         });
+        return newDrones;
     }
 };
 
-
-Drones iterateLoop(const Drones& oldDrones, Zones zones, const World& world)
+Drones iterateLoop(const Drones& oldDrones, const Zones& zones, const World& world)
 {
-    ZoneUtils::readZonesOwnership(zones);
+    Zones zonesWithOwnership = ZoneUtils::readZonesOwnership(zones);
     Players players = WorldUtils::readPlayers(world);
-    DronesUtils::associateDronesWithZones(zones, players, world);
-    Player& myPlayer = PlayerUtils::findMyPlayer(world, players);
-    myPlayer.drones = DronesUtils::updateDronesWithHistoricalData(oldDrones, myPlayer.drones);
-    ZoneUtils::print(zones);
-    PlayerUtils::print(players);
-    auto droneAnimationFunc = std::bind(DronesUtils::animateDrone, cref(players), cref(world), ref(zones), _1);
-    for_each(std::begin(myPlayer.drones), std::end(myPlayer.drones), droneAnimationFunc);
+    Players playersWithZones = PlayerUtils::associatePlayersWithZones(zonesWithOwnership, players);
+    Player& myPlayer = PlayerUtils::findMyPlayer(playersWithZones);
+    std::cerr << "My drones size1: " << myPlayer.drones.size() << endl;
 
-    return myPlayer.drones;
+    Zones zonesWithDrones = ZoneUtils::associateZonesWithDrones(zonesWithOwnership, players);
+    Zones zonesWithDistances = Utils::fillDistances(zonesWithDrones, myPlayer.drones);
+
+    myPlayer.drones = DronesUtils::updateDronesWithHistoricalData(oldDrones, myPlayer.drones);
+    std::cerr << "My drones size2: " << myPlayer.drones.size() << endl;
+    myPlayer.drones = Utils::fillDistances(myPlayer.drones, zonesWithDrones);
+    std::cerr << "My drones size3: " << myPlayer.drones.size() << endl;
+
+//    ZoneUtils::print(zonesWithDistances);
+//    PlayerUtils::print(playersWithZones);
+
+    return Strategos::giveOrders(zonesWithDistances, myPlayer);
 }
 
 int main()
