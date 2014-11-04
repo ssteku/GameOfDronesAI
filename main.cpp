@@ -21,7 +21,9 @@ typedef std::vector<Drone> Drones;
 typedef std::vector<Zone> Zones;
 typedef std::vector<Player> Players;
 typedef double Distance;
-typedef std::map<int, Distance> DistanceMap;
+typedef int PlayerId;
+typedef int ObjectId;
+typedef std::map<ObjectId, Distance> DistanceMap;
 static std::default_random_engine generator;
 
 const float ZONE_RAY = 99.9f;
@@ -165,7 +167,14 @@ struct Drone
         zone = -1;
     }
 
-
+    ObjectId getClosestZoneId() const
+    {
+        auto objIt = std::min_element(std::begin(distanceMap), std::end(distanceMap), [](
+                const std::pair<ObjectId, Distance>& distL, const std::pair<ObjectId, Distance>& distR){
+            return distL.second < distR.second;
+        });
+        return objIt->first;
+    }
     bool operator<(const Drone& drone)
     {
         return drone.id < id;
@@ -173,9 +182,9 @@ struct Drone
 
     int x;
     int y;
-    int id;
-    int zone;
-    int aimZone;
+    ObjectId id;
+    ObjectId zone;
+    ObjectId aimZone;
     DistanceMap distanceMap;
 };
 
@@ -209,12 +218,12 @@ struct Zone
 
     unsigned long  calculateForceMisproportion()const {
         unsigned long misproportion = enemyDrones.size() >= (playerDrones.size()) ?
-                enemyDrones.size() - (playerDrones.size()) : 4;
-        cerr << "calculateForceMisproportion:" << endl;
-        cerr << "   enemyDrones.size(): " << enemyDrones.size() << endl;
-        cerr << "   playerDrones.size(): " << playerDrones.size() << endl;
-        cerr << "   aimingDrones.size(): " << aimingDrones.size() << endl;
-        cerr << "   misproportion: " << misproportion << endl;
+                enemyDrones.size() - (playerDrones.size()) : 0;
+//        cerr << "calculateForceMisproportion:" << endl;
+//        cerr << "   enemyDrones.size(): " << enemyDrones.size() << endl;
+//        cerr << "   playerDrones.size(): " << playerDrones.size() << endl;
+//        cerr << "   aimingDrones.size(): " << aimingDrones.size() << endl;
+//        cerr << "   misproportion: " << misproportion << endl;
         return misproportion;
     }
 
@@ -225,8 +234,8 @@ struct Zone
 
     int x; // corresponds to the position of the center of a zone. A zone is a circle with a radius of 100 units.
     int y;
-    int id;
-    int ownerId;
+    ObjectId id;
+    PlayerId ownerId;
     Drones enemyDrones;
     Drones playerDrones;
     Drones aimingDrones;
@@ -293,7 +302,7 @@ struct Player
         return my;
     }
 
-    int id;
+    ObjectId id;
     bool my;
     Drones drones;
 };
@@ -528,17 +537,121 @@ public:
 
 class Strategos
 {
+    typedef unsigned Rank;
+    typedef std::map<ObjectId, Rank> RankMap;
 public:
     static Drones giveOrders(const Zones& zones, const Player& player)
     {
+
+        Zones notMyZones = ZoneUtils::getNotMyZones(zones, player.id);
+
+        auto sortByMisproportionFunc = [](const Zone& zone1, const Zone& zone2){
+            return zone1.calculateForceMisproportion() < zone2.calculateForceMisproportion();
+        };
+
+        std::stable_sort(std::begin(notMyZones), std::end(notMyZones), sortByMisproportionFunc);
+
+        Drones copyDrones = player.drones;
+
+        std::stable_sort(std::begin(copyDrones), std::end(copyDrones), [](const Drone& drone1, const Drone& drone2){
+            return drone1.zone == -1;
+        });
+
+        auto mapDronesToZonesFunc = std::bind(mapDronesToZones, _1, _2, copyDrones);
+        auto droneToZoneMap = std::accumulate(std::begin(notMyZones), std::end(notMyZones),
+                std::map<int, Zone>(), mapDronesToZonesFunc);
+
+
+        Drones filteredDrones =  filterUsedDrones(copyDrones, droneToZoneMap);
+        auto unmappedDronesMappedToZones = mapUnusedDronesToTheirZones(filteredDrones, zones);
+        droneToZoneMap.insert(std::begin(unmappedDronesMappedToZones), std::end(unmappedDronesMappedToZones));
+
+        return getUpdatedDrones(player.drones, droneToZoneMap);
+    }
+
+    static std::map<int, Zone> mapUnusedDronesToTheirZones(const Drones& drones, const Zones& zones)
+    {
+        std::map<int, Zone> mappedDrones;
+        if(!drones.empty())
+        {
+            for(auto drone : drones)
+            {
+                ObjectId  zoneId = drone.getClosestZoneId();
+                Zone myZone = Utils::findElementWithId(zones, zoneId);
+                mappedDrones.insert(std::end(mappedDrones), std::make_pair(drone.id, myZone));
+            }
+        }
+        return mappedDrones;
+    }
+
+    static Drones getUpdatedDrones(const Drones& oldDrones, const std::map<int, Zone>& droneToZoneMap)
+    {
         Drones newDrones;
-        std::transform(std::begin(player.drones), std::end(player.drones), std::back_inserter(newDrones), [](const Drone& drone){
+        std::transform(std::begin(oldDrones), std::end(oldDrones), std::back_inserter(newDrones), [&droneToZoneMap](const Drone& drone){
             Drone newDrone = drone;
-            newDrone.move(-1, newDrone.x + 1, newDrone.y + 1);
+            Zone myZone = droneToZoneMap.at(newDrone.id);
+            newDrone.move(myZone.id, myZone.x, myZone.y);
             return newDrone;
         });
         return newDrones;
     }
+
+    static std::map<int, Zone> mapDronesToZones(const std::map<int, Zone>& droneToZoneMap, const Zone& zone, const Drones& drones){
+        std::map<int, Zone> droneToZoneMapNew;
+        std::copy(std::begin(droneToZoneMap), std::end(droneToZoneMap), std::inserter(droneToZoneMapNew, std::end(droneToZoneMapNew)));
+        cerr << "Zone : " << zone.id << " mispropo: " << zone.calculateForceMisproportion() << endl;
+
+        Drones filteredDrones =  filterUsedDrones(drones, droneToZoneMap);
+
+        cerr << "filteredDrones.size: " << filteredDrones.size() << endl;
+        for(int i = 0; i < zone.calculateForceMisproportion() + 1; ++i)
+        {
+            Drones notInZone;
+            std::copy_if(filteredDrones.begin(), filteredDrones.end(), std::back_inserter(notInZone), [&zone](const Drone& drone){
+                return drone.zone != zone.id;
+            });
+            cerr << "notInZone.size: " << notInZone.size() << endl;
+
+            auto droneIt = std::min_element(notInZone.begin(), notInZone.end(), [&zone](const Drone& drone1, const Drone& drone2){
+                return drone1.distanceMap.at(zone.id) < drone2.distanceMap.at(zone.id);
+            });
+
+            if(droneIt == std::end(notInZone))
+            {
+                std::cerr << "Empty drones" << endl;
+                break;
+            }
+
+            droneToZoneMapNew.insert(std::end(droneToZoneMapNew), std::make_pair(droneIt->id, zone));
+            cerr << "Drone : " << droneIt->id << " to zone: " << zone.id << endl;
+
+        }
+        return droneToZoneMapNew;
+    }
+    static Drones filterUsedDrones(const Drones& drones, const std::map<int, Zone>& droneToZoneMap)
+    {
+        Drones filteredDrones;
+        std::copy_if(std::begin(drones), std::end(drones), std::back_inserter(filteredDrones), [&droneToZoneMap](const Drone& drone){
+            return droneToZoneMap.find(drone.id) == std::end(droneToZoneMap);
+        });
+        return filteredDrones;
+    }
+
+
+    static RankMap generateZonesRankMap(const Zones& zones, const Player& player)
+    {
+        RankMap initialRanksMap = generateInitialRankMap(zones);
+        return initialRanksMap;
+    }
+    static RankMap generateInitialRankMap(const Zones& zones)
+    {
+        RankMap initRankMap;
+        std::transform(std::begin(zones), std::end(zones), std::inserter(initRankMap, initRankMap.end()), [](const Zone& zone){
+            return std::make_pair(zone.id, 0);
+        });
+        return initRankMap;
+    }
+
 };
 
 Drones iterateLoop(const Drones& oldDrones, const Zones& zones, const World& world)
